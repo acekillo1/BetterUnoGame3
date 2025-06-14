@@ -133,7 +133,17 @@ function App() {
   const handleDrawCard = () => {
     if (isCurrentPlayerTurn && currentPlayer) {
       console.log('📥 Drawing card for:', currentPlayer.name);
-      drawCard(currentPlayer.id, 1);
+      
+      // Check if player has any playable cards
+      if (playableCards.length === 0) {
+        // No playable cards - draw one card and pass turn
+        console.log('🎯 No playable cards - drawing 1 card and passing turn');
+        drawCard(currentPlayer.id, 1);
+      } else {
+        // Has playable cards but chose to draw - just draw without passing turn
+        console.log('🎯 Player chose to draw despite having playable cards');
+        drawCard(currentPlayer.id, 1);
+      }
     }
   };
 
@@ -233,6 +243,7 @@ function App() {
               player={player}
               isCurrentPlayer={gameState.players[gameState.currentPlayerIndex]?.id === player.id}
               playableCards={[]}
+              isOwnPlayer={false} // Always false for other players - hide their cards
             />
           ))}
         </div>
@@ -255,6 +266,7 @@ function App() {
             playableCards={playableCards}
             onCardClick={handleCardClick}
             selectedCard={selectedCard}
+            isOwnPlayer={true} // Show actual cards for own hand
           />
         )}
 
@@ -267,6 +279,7 @@ function App() {
             <li>• Gọi UNO khi còn 1 lá bài</li>
             <li>• Lá bài mới: SwapHands, DrawMinusTwo, ShuffleMyHand, BlockAll</li>
             <li>• Người đầu tiên hết bài thắng cuộc!</li>
+            <li>• <strong>Rút bài:</strong> Nếu không có bài để đánh, rút 1 lá và chuyển lượt</li>
             {isMultiplayer && (
               <>
                 <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>

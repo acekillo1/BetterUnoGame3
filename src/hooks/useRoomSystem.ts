@@ -287,11 +287,35 @@ export function useRoomSystem() {
   const applyDrawCard = (gameState: GameState, playerId: string, count: number): GameState => {
     const newState = { ...gameState };
     const player = newState.players.find(p => p.id === playerId);
+    const currentPlayer = newState.players[newState.currentPlayerIndex];
     
     if (!player) return gameState;
 
+    // Check if it's the current player's turn
+    const isCurrentPlayerTurn = player.id === currentPlayer.id;
+
     drawCardsForPlayer(newState, newState.players.findIndex(p => p.id === playerId), count);
     console.log(`📥 ${player.name} drew ${count} card(s)`);
+
+    // NEW LOGIC: If current player draws and has no playable cards, pass turn
+    if (isCurrentPlayerTurn) {
+      // Check if player has any playable cards after drawing
+      const playableCards = player.cards.filter(card => 
+        canPlayCard(card, newState.topCard, newState.wildColor) &&
+        (!newState.isBlockAllActive || card.type === 'number')
+      );
+
+      // If no playable cards after drawing, pass turn
+      if (playableCards.length === 0) {
+        console.log('🎯 No playable cards after drawing - passing turn');
+        newState.currentPlayerIndex = getNextPlayerIndex(
+          newState.currentPlayerIndex, 
+          newState.players.length, 
+          newState.direction
+        );
+      }
+    }
+
     return newState;
   };
 

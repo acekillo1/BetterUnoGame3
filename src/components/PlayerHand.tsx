@@ -8,6 +8,7 @@ interface PlayerHandProps {
   playableCards: CardType[];
   onCardClick?: (card: CardType) => void;
   selectedCard?: CardType;
+  isOwnPlayer?: boolean; // New prop to determine if this is the current user's hand
 }
 
 const PlayerHand: React.FC<PlayerHandProps> = ({ 
@@ -15,9 +16,11 @@ const PlayerHand: React.FC<PlayerHandProps> = ({
   isCurrentPlayer, 
   playableCards,
   onCardClick,
-  selectedCard
+  selectedCard,
+  isOwnPlayer = false
 }) => {
-  if (player.isHuman) {
+  // Only show actual cards if this is the current user's own hand
+  if (isOwnPlayer) {
     return (
       <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
         <div className="flex items-center justify-between mb-4">
@@ -58,7 +61,7 @@ const PlayerHand: React.FC<PlayerHandProps> = ({
     );
   }
 
-  // AI/Other players - show card backs with proper styling
+  // For other players - always show card backs (hidden cards)
   return (
     <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
       <div className="flex items-center justify-between mb-3">

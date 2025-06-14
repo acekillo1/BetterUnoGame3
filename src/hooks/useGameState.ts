@@ -49,8 +49,12 @@ export function useGameState() {
     setGameState(prev => {
       const newState = { ...prev };
       const player = newState.players.find(p => p.id === playerId);
+      const currentPlayer = newState.players[newState.currentPlayerIndex];
       
       if (!player) return prev;
+
+      // Check if it's the current player's turn
+      const isCurrentPlayerTurn = player.id === currentPlayer.id;
 
       for (let i = 0; i < count; i++) {
         if (newState.drawPile.length === 0) {
@@ -73,6 +77,25 @@ export function useGameState() {
               newState.currentPlayerIndex = 0;
             }
           }
+        }
+      }
+
+      // NEW LOGIC: If current player draws and has no playable cards, pass turn
+      if (isCurrentPlayerTurn) {
+        // Check if player has any playable cards after drawing
+        const playableCards = player.cards.filter(card => 
+          canPlayCard(card, newState.topCard, newState.wildColor) &&
+          (!newState.isBlockAllActive || card.type === 'number')
+        );
+
+        // If no playable cards after drawing, pass turn
+        if (playableCards.length === 0) {
+          console.log('🎯 No playable cards after drawing - passing turn');
+          newState.currentPlayerIndex = getNextPlayerIndex(
+            newState.currentPlayerIndex, 
+            newState.players.length, 
+            newState.direction
+          );
         }
       }
 
