@@ -47,6 +47,7 @@ function App() {
   const playCard = roomGameState ? roomPlayCard : localPlayCard;
   const drawCard = roomGameState ? roomDrawCard : localDrawCard;
   const callUno = roomGameState ? roomCallUno : localCallUno;
+  const isMultiplayer = !!roomGameState;
 
   // Handle room events
   React.useEffect(() => {
@@ -107,7 +108,6 @@ function App() {
     const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive);
     if (!validation.valid) {
       console.log('❌ Invalid card play:', validation.reason);
-      // You could show a toast/notification here with validation.reason
       return;
     }
 
@@ -144,12 +144,14 @@ function App() {
   };
 
   const handleGameRestart = () => {
-    if (roomGameState) {
+    if (isMultiplayer) {
       // In multiplayer, go back to lobby
       setAppState('room-lobby');
     } else {
       // In single player, reset local game
       resetGame();
+      setSelectedCard(null);
+      setShowColorPicker(false);
     }
   };
 
@@ -200,12 +202,12 @@ function App() {
           <p className="text-white/70 text-lg">
             {currentRoom ? `Phòng: ${currentRoom.name}` : 'Experience the classic card game with enhanced features'}
           </p>
-          {!isConnected && roomGameState && (
+          {!isConnected && isMultiplayer && (
             <div className="mt-2 text-red-300 text-sm">
               ⚠️ Mất kết nối server - Game có thể không hoạt động bình thường
             </div>
           )}
-          {roomGameState && (
+          {isMultiplayer && (
             <div className="mt-2 text-blue-300 text-sm">
               {isHost ? '👑 Bạn là Host - Quản lý trạng thái game' : '👥 Đang đồng bộ với Host'}
             </div>
@@ -218,6 +220,8 @@ function App() {
             gameState={gameState}
             onUnoCall={handleUnoCall}
             onRestart={handleGameRestart}
+            isMultiplayer={isMultiplayer}
+            isHost={isHost}
           />
         </div>
 
@@ -256,14 +260,14 @@ function App() {
 
         {/* Instructions */}
         <div className="mt-8 bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-          <h3 className="text-white font-semibold mb-2">How to Play:</h3>
+          <h3 className="text-white font-semibold mb-2">Cách chơi:</h3>
           <ul className="text-white/70 text-sm space-y-1">
-            <li>• Match cards by color, number, or symbol</li>
-            <li>• Use action cards strategically (Skip, Reverse, Draw 2, etc.)</li>
-            <li>• Call UNO when you have one card left</li>
-            <li>• New cards: SwapHands, DrawMinusTwo, ShuffleMyHand, BlockAll</li>
-            <li>• First player to run out of cards wins!</li>
-            {roomGameState && (
+            <li>• Ghép bài theo màu, số hoặc ký hiệu</li>
+            <li>• Sử dụng lá bài hành động một cách chiến thuật (Skip, Reverse, Draw 2, v.v.)</li>
+            <li>• Gọi UNO khi còn 1 lá bài</li>
+            <li>• Lá bài mới: SwapHands, DrawMinusTwo, ShuffleMyHand, BlockAll</li>
+            <li>• Người đầu tiên hết bài thắng cuộc!</li>
+            {isMultiplayer && (
               <>
                 <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>
                 <li>• <strong>Real-time:</strong> Mọi người chơi cùng một trận game</li>

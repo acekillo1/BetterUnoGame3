@@ -96,7 +96,7 @@ export function useRoomSystem() {
       discardPile: [topCard],
       gamePhase: 'playing',
       isBlockAllActive: false,
-      wildColor: undefined, // IMPORTANT: Start with no wild color
+      wildColor: undefined,
       winner: undefined,
       lastPlayedCard: undefined,
     };
