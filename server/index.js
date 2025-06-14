@@ -347,6 +347,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('broadcast-stacked-draw', () => {
+    const playerInfo = players.get(socket.id);
+    if (playerInfo) {
+      socket.to(playerInfo.roomId).emit('stacked-draw');
+    }
+  });
+
   socket.on('broadcast-uno-call', (data) => {
     const playerInfo = players.get(socket.id);
     if (playerInfo) {

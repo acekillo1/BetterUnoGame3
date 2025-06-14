@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { GameState, Player, Card, CardColor } from '../types/Card';
-import { createDeck, shuffleDeck, canPlayCard } from '../utils/cardUtils';
+import { createDeck, shuffleDeck, canPlayCard, canStackDrawCard } from '../utils/cardUtils';
 
 export function useGameState() {
   const [gameState, setGameState] = useState<GameState>(() => initializeGame());
@@ -39,7 +39,10 @@ export function useGameState() {
       drawPile: remainingDeck,
       discardPile: [topCard],
       gamePhase: 'playing',
-      isBlockAllActive: false
+      isBlockAllActive: false,
+      stackedDrawCount: 0,
+      stackingType: 'none',
+      eliminatedPlayers: []
     };
   }
 
@@ -68,23 +71,33 @@ export function useGameState() {
           const card = newState.drawPile.pop()!;
           player.cards.push(card);
           drawnCards.push(card);
-
-          // Check 50 card limit
-          if (player.cards.length > 50) {
-            // Remove player from game
-            newState.players = newState.players.filter(p => p.id !== playerId);
-            if (newState.currentPlayerIndex >= newState.players.length) {
-              newState.currentPlayerIndex = 0;
-            }
-          }
         }
       }
 
-      // NEW LOGIC: If current player draws and has no playable cards, pass turn
-      if (isCurrentPlayerTurn) {
+      // Check elimination (35+ cards)
+      if (player.cards.length >= 35) {
+        console.log(`🚫 ${player.name} eliminated for having ${player.cards.length} cards`);
+        newState.eliminatedPlayers.push(player.id);
+        newState.players = newState.players.filter(p => p.id !== playerId);
+        
+        // Adjust current player index if needed
+        if (newState.currentPlayerIndex >= newState.players.length) {
+          newState.currentPlayerIndex = 0;
+        }
+        
+        // Check if only one player remains
+        if (newState.players.length === 1) {
+          newState.gamePhase = 'finished';
+          newState.winner = newState.players[0];
+          return newState;
+        }
+      }
+
+      // If current player draws and has no playable cards, pass turn
+      if (isCurrentPlayerTurn && newState.stackingType === 'none') {
         // Check if player has any playable cards after drawing
         const playableCards = player.cards.filter(card => 
-          canPlayCard(card, newState.topCard, newState.wildColor) &&
+          canPlayCard(card, newState.topCard, newState.wildColor, newState.stackingType) &&
           (!newState.isBlockAllActive || card.type === 'number')
         );
 
@@ -114,13 +127,20 @@ export function useGameState() {
       if (!player || player.id !== currentPlayer.id) return prev;
 
       // Check if card can be played
-      if (!canPlayCard(card, newState.topCard, newState.wildColor)) {
+      if (!canPlayCard(card, newState.topCard, newState.wildColor, newState.stackingType)) {
         return prev;
       }
 
       // Check BlockAll restriction
       if (newState.isBlockAllActive && card.type !== 'number') {
         return prev;
+      }
+
+      // Check stacking rules
+      if (newState.stackingType !== 'none') {
+        if (!canStackDrawCard(card, newState.stackingType)) {
+          return prev;
+        }
       }
 
       // Remove card from player's hand
@@ -130,7 +150,7 @@ export function useGameState() {
       newState.discardPile.push(card);
       newState.topCard = card;
       
-      // Clear wild color unless new card is wild
+      // Handle wild color
       if (card.type === 'wild' || card.type === 'wild-draw-four') {
         newState.wildColor = chosenColor || 'red';
       } else {
@@ -173,13 +193,31 @@ export function useGameState() {
           break;
           
         case 'draw-two':
-          drawCardsForPlayer(newState, nextPlayerIndex, 2);
-          nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+          // Handle stacking
+          if (newState.stackingType === 'none') {
+            // Start new stacking sequence
+            newState.stackedDrawCount = 2;
+            newState.stackingType = 'draw-two';
+            console.log('🔥 Started +2 stacking sequence');
+          } else {
+            // Add to existing stack
+            newState.stackedDrawCount += 2;
+            console.log(`🔥 Added +2 to stack, total: ${newState.stackedDrawCount}`);
+          }
           break;
           
         case 'wild-draw-four':
-          drawCardsForPlayer(newState, nextPlayerIndex, 4);
-          nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+          // Handle stacking
+          if (newState.stackingType === 'none') {
+            // Start new stacking sequence
+            newState.stackedDrawCount = 4;
+            newState.stackingType = 'wild-draw-four';
+            console.log('🔥 Started +4 stacking sequence');
+          } else {
+            // Add to existing stack
+            newState.stackedDrawCount += 4;
+            console.log(`🔥 Added +4 to stack, total: ${newState.stackedDrawCount}`);
+          }
           break;
           
         case 'swap-hands':
@@ -226,6 +264,33 @@ export function useGameState() {
     });
   }, []);
 
+  const handleStackedDraw = useCallback(() => {
+    setGameState(prev => {
+      if (prev.stackedDrawCount === 0 || prev.stackingType === 'none') return prev;
+
+      const newState = { ...prev };
+      const currentPlayer = newState.players[newState.currentPlayerIndex];
+      
+      console.log(`💥 ${currentPlayer.name} must draw ${newState.stackedDrawCount} cards from stack`);
+      
+      // Draw the stacked cards
+      drawCardsForPlayer(newState, newState.currentPlayerIndex, newState.stackedDrawCount);
+      
+      // Reset stacking
+      newState.stackedDrawCount = 0;
+      newState.stackingType = 'none';
+      
+      // Move to next player
+      newState.currentPlayerIndex = getNextPlayerIndex(
+        newState.currentPlayerIndex, 
+        newState.players.length, 
+        newState.direction
+      );
+      
+      return newState;
+    });
+  }, []);
+
   const callUno = useCallback((playerId: string) => {
     setGameState(prev => {
       const newState = { ...prev };
@@ -248,7 +313,8 @@ export function useGameState() {
     drawCard,
     playCard,
     callUno,
-    resetGame
+    resetGame,
+    handleStackedDraw
   };
 }
 
@@ -274,15 +340,24 @@ function drawCardsForPlayer(gameState: GameState, playerIndex: number, count: nu
     if (gameState.drawPile.length > 0) {
       const card = gameState.drawPile.pop()!;
       player.cards.push(card);
+    }
+  }
 
-      // Check 50 card limit
-      if (player.cards.length > 50) {
-        gameState.players = gameState.players.filter(p => p.id !== player.id);
-        if (gameState.currentPlayerIndex >= gameState.players.length) {
-          gameState.currentPlayerIndex = 0;
-        }
-        break;
-      }
+  // Check elimination (35+ cards)
+  if (player.cards.length >= 35) {
+    console.log(`🚫 ${player.name} eliminated for having ${player.cards.length} cards`);
+    gameState.eliminatedPlayers.push(player.id);
+    gameState.players = gameState.players.filter(p => p.id !== player.id);
+    
+    // Adjust current player index if needed
+    if (gameState.currentPlayerIndex >= gameState.players.length) {
+      gameState.currentPlayerIndex = 0;
+    }
+    
+    // Check if only one player remains
+    if (gameState.players.length === 1) {
+      gameState.gamePhase = 'finished';
+      gameState.winner = gameState.players[0];
     }
   }
 }

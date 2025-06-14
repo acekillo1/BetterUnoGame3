@@ -83,7 +83,18 @@ export function shuffleDeck(deck: Card[]): Card[] {
   return shuffled;
 }
 
-export function canPlayCard(card: Card, topCard: Card, wildColor?: CardColor): boolean {
+export function canPlayCard(card: Card, topCard: Card, wildColor?: CardColor, stackingType?: 'none' | 'draw-two' | 'wild-draw-four'): boolean {
+  // Special stacking rules
+  if (stackingType && stackingType !== 'none') {
+    if (stackingType === 'draw-two') {
+      // Can stack +2 or +4 on +2
+      return card.type === 'draw-two' || card.type === 'wild-draw-four';
+    } else if (stackingType === 'wild-draw-four') {
+      // Can only stack +4 on +4
+      return card.type === 'wild-draw-four';
+    }
+  }
+  
   // Wild cards can always be played (except when BlockAll is active, but that's checked elsewhere)
   if (card.type === 'wild' || card.type === 'wild-draw-four') {
     return true;
@@ -158,14 +169,27 @@ export function getCardSymbol(card: Card): string {
 }
 
 // Helper function to validate if a card play is legal
-export function validateCardPlay(card: Card, topCard: Card, wildColor?: CardColor, isBlockAllActive?: boolean): { valid: boolean; reason?: string } {
+export function validateCardPlay(card: Card, topCard: Card, wildColor?: CardColor, isBlockAllActive?: boolean, stackingType?: 'none' | 'draw-two' | 'wild-draw-four'): { valid: boolean; reason?: string } {
   // Check BlockAll restriction first
   if (isBlockAllActive && card.type !== 'number') {
     return { valid: false, reason: 'BlockAll active - only number cards allowed' };
   }
   
+  // Check stacking rules
+  if (stackingType && stackingType !== 'none') {
+    if (stackingType === 'draw-two') {
+      if (card.type !== 'draw-two' && card.type !== 'wild-draw-four') {
+        return { valid: false, reason: 'Must stack +2 or +4 card, or draw cards' };
+      }
+    } else if (stackingType === 'wild-draw-four') {
+      if (card.type !== 'wild-draw-four') {
+        return { valid: false, reason: 'Must stack +4 card, or draw cards' };
+      }
+    }
+  }
+  
   // Check basic UNO rules
-  if (!canPlayCard(card, topCard, wildColor)) {
+  if (!canPlayCard(card, topCard, wildColor, stackingType)) {
     if (wildColor && wildColor !== 'wild') {
       return { valid: false, reason: `Must match wild color: ${wildColor}` };
     } else {
@@ -174,4 +198,17 @@ export function validateCardPlay(card: Card, topCard: Card, wildColor?: CardColo
   }
   
   return { valid: true };
+}
+
+// Check if a player can stack on current draw cards
+export function canStackDrawCard(card: Card, stackingType: 'none' | 'draw-two' | 'wild-draw-four'): boolean {
+  if (stackingType === 'none') return false;
+  
+  if (stackingType === 'draw-two') {
+    return card.type === 'draw-two' || card.type === 'wild-draw-four';
+  } else if (stackingType === 'wild-draw-four') {
+    return card.type === 'wild-draw-four';
+  }
+  
+  return false;
 }

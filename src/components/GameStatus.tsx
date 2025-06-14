@@ -1,6 +1,6 @@
 import React from 'react';
 import { GameState } from '../types/Card';
-import { Trophy, Users, Zap, RotateCcw } from 'lucide-react';
+import { Trophy, Users, Zap, RotateCcw, AlertTriangle } from 'lucide-react';
 
 interface GameStatusProps {
   gameState: GameState;
@@ -32,6 +32,19 @@ const GameStatus: React.FC<GameStatusProps> = ({
           <p className="text-lg text-white/90 mb-2">
             🎉 <strong>{gameState.winner?.name}</strong> đã thắng!
           </p>
+          
+          {/* Show eliminated players */}
+          {gameState.eliminatedPlayers.length > 0 && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4">
+              <div className="flex items-center justify-center gap-2 text-red-200 mb-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="font-medium">Người chơi bị loại (35+ bài)</span>
+              </div>
+              <div className="text-red-300 text-sm">
+                {gameState.eliminatedPlayers.length} người chơi đã bị loại
+              </div>
+            </div>
+          )}
           
           {/* Show final scores */}
           <div className="bg-white/5 rounded-lg p-4 mb-4">
@@ -114,6 +127,26 @@ const GameStatus: React.FC<GameStatusProps> = ({
               {gameState.players[gameState.currentPlayerIndex]?.name}
             </span>
           </div>
+
+          {/* Stacking indicator */}
+          {gameState.stackingType !== 'none' && gameState.stackedDrawCount > 0 && (
+            <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/50 rounded-lg px-3 py-1">
+              <Zap className="w-4 h-4 text-red-300" />
+              <span className="text-red-200 text-sm font-medium">
+                Stack: {gameState.stackedDrawCount}
+              </span>
+            </div>
+          )}
+
+          {/* Eliminated players count */}
+          {gameState.eliminatedPlayers.length > 0 && (
+            <div className="flex items-center gap-2 bg-red-500/20 border border-red-500/50 rounded-lg px-3 py-1">
+              <AlertTriangle className="w-4 h-4 text-red-300" />
+              <span className="text-red-200 text-sm">
+                {gameState.eliminatedPlayers.length} loại
+              </span>
+            </div>
+          )}
         </div>
 
         {/* UNO button */}

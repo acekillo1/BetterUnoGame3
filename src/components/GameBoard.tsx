@@ -1,20 +1,22 @@
 import React from 'react';
 import { GameState, CardColor } from '../types/Card';
 import Card from './Card';
-import { ArrowRight, RotateCcw } from 'lucide-react';
+import { ArrowRight, RotateCcw, Zap } from 'lucide-react';
 
 interface GameBoardProps {
   gameState: GameState;
   onDrawCard: () => void;
   onColorChoice?: (color: CardColor) => void;
   showColorPicker?: boolean;
+  onHandleStackedDraw?: () => void;
 }
 
 const GameBoard: React.FC<GameBoardProps> = ({ 
   gameState, 
   onDrawCard, 
   onColorChoice,
-  showColorPicker = false
+  showColorPicker = false,
+  onHandleStackedDraw
 }) => {
   const currentPlayer = gameState.players[gameState.currentPlayerIndex];
 
@@ -30,21 +32,51 @@ const GameBoard: React.FC<GameBoardProps> = ({
         <span className="text-sm capitalize">{gameState.direction}</span>
       </div>
 
+      {/* Stacking indicator */}
+      {gameState.stackingType !== 'none' && gameState.stackedDrawCount > 0 && (
+        <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-red-500/20 border border-red-500/50 rounded-lg px-4 py-2">
+          <div className="flex items-center gap-2 text-red-200">
+            <Zap className="w-5 h-5" />
+            <span className="font-bold">
+              Stacked: {gameState.stackedDrawCount} cards
+            </span>
+          </div>
+          <div className="text-red-300 text-sm text-center">
+            {gameState.stackingType === 'draw-two' ? 'Stack +2 or +4, or draw all' : 'Stack +4 only, or draw all'}
+          </div>
+        </div>
+      )}
+
       {/* Center play area */}
       <div className="flex items-center gap-8">
         {/* Draw pile */}
         <div className="relative group">
           <div 
             className="w-20 h-28 bg-gradient-to-br from-blue-900 to-purple-900 rounded-xl border-2 border-white/20 shadow-lg cursor-pointer hover:scale-105 transition-transform duration-200 flex items-center justify-center text-white font-bold"
-            onClick={onDrawCard}
+            onClick={gameState.stackingType !== 'none' && onHandleStackedDraw ? onHandleStackedDraw : onDrawCard}
           >
             <div className="text-center">
-              <div className="text-lg">UNO</div>
-              <div className="text-xs text-white/70">{gameState.drawPile.length}</div>
+              <div className="text-lg">
+                {gameState.stackingType !== 'none' ? '💥' : 'UNO'}
+              </div>
+              <div className="text-xs text-white/70">
+                {gameState.stackingType !== 'none' 
+                  ? `Draw ${gameState.stackedDrawCount}` 
+                  : gameState.drawPile.length
+                }
+              </div>
             </div>
           </div>
           <div className="absolute -top-1 -left-1 w-20 h-28 bg-gradient-to-br from-blue-800 to-purple-800 rounded-xl border-2 border-white/10 -z-10" />
           <div className="absolute -top-2 -left-2 w-20 h-28 bg-gradient-to-br from-blue-700 to-purple-700 rounded-xl border-2 border-white/5 -z-20" />
+          
+          {/* Tooltip */}
+          <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            {gameState.stackingType !== 'none' 
+              ? `Click to draw ${gameState.stackedDrawCount} stacked cards`
+              : 'Click to draw a card'
+            }
+          </div>
         </div>
 
         {/* Current top card */}
@@ -76,6 +108,13 @@ const GameBoard: React.FC<GameBoardProps> = ({
           <div className="mt-2 bg-orange-500/20 border border-orange-500/50 rounded-lg px-3 py-1">
             <span className="text-orange-200 text-sm font-medium">
               🛡️ BlockAll Active - Number cards only
+            </span>
+          </div>
+        )}
+        {gameState.stackingType !== 'none' && (
+          <div className="mt-2 bg-red-500/20 border border-red-500/50 rounded-lg px-3 py-1">
+            <span className="text-red-200 text-sm font-medium">
+              🔥 {gameState.stackingType === 'draw-two' ? 'Stack +2/+4 or draw' : 'Stack +4 or draw'} {gameState.stackedDrawCount} cards
             </span>
           </div>
         )}

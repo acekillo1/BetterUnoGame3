@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardColor } from './types/Card';
 import { useGameState } from './hooks/useGameState';
 import { useRoomSystem } from './hooks/useRoomSystem';
-import { canPlayCard, validateCardPlay } from './utils/cardUtils';
+import { canPlayCard, validateCardPlay, canStackDrawCard } from './utils/cardUtils';
 import GameBoard from './components/GameBoard';
 import PlayerHand from './components/PlayerHand';
 import GameStatus from './components/GameStatus';
@@ -36,17 +36,26 @@ function App() {
     clearError,
     playCard: roomPlayCard,
     drawCard: roomDrawCard,
-    callUno: roomCallUno
+    callUno: roomCallUno,
+    handleStackedDraw: roomHandleStackedDraw
   } = useRoomSystem();
 
   // Local game state (fallback for single player)
-  const { gameState: localGameState, drawCard: localDrawCard, playCard: localPlayCard, callUno: localCallUno, resetGame } = useGameState();
+  const { 
+    gameState: localGameState, 
+    drawCard: localDrawCard, 
+    playCard: localPlayCard, 
+    callUno: localCallUno, 
+    resetGame,
+    handleStackedDraw: localHandleStackedDraw
+  } = useGameState();
 
   // Use room game state if in multiplayer, otherwise use local game state
   const gameState = roomGameState || localGameState;
   const playCard = roomGameState ? roomPlayCard : localPlayCard;
   const drawCard = roomGameState ? roomDrawCard : localDrawCard;
   const callUno = roomGameState ? roomCallUno : localCallUno;
+  const handleStackedDraw = roomGameState ? roomHandleStackedDraw : localHandleStackedDraw;
   const isMultiplayer = !!roomGameState;
 
   // Handle room events
@@ -92,9 +101,15 @@ function App() {
   const otherPlayers = gameState.players.filter(p => p.id !== currentPlayer?.id);
   const isCurrentPlayerTurn = gameState.players[gameState.currentPlayerIndex]?.id === currentPlayer?.id;
 
-  // Enhanced playable cards validation
+  // Enhanced playable cards validation with stacking support
   const playableCards = currentPlayer ? currentPlayer.cards.filter(card => {
-    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive);
+    // If stacking is active, only allow stacking cards
+    if (gameState.stackingType !== 'none') {
+      return canStackDrawCard(card, gameState.stackingType);
+    }
+    
+    // Normal validation
+    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive, gameState.stackingType);
     return validation.valid;
   }) : [];
 
@@ -105,7 +120,7 @@ function App() {
     }
     
     // Validate card play before allowing selection
-    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive);
+    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive, gameState.stackingType);
     if (!validation.valid) {
       console.log('❌ Invalid card play:', validation.reason);
       return;
@@ -133,6 +148,13 @@ function App() {
   const handleDrawCard = () => {
     if (isCurrentPlayerTurn && currentPlayer) {
       console.log('📥 Drawing card for:', currentPlayer.name);
+      
+      // If stacking is active, handle stacked draw instead
+      if (gameState.stackingType !== 'none') {
+        console.log('💥 Handling stacked draw instead of regular draw');
+        handleStackedDraw();
+        return;
+      }
       
       // Check if player has any playable cards
       if (playableCards.length === 0) {
@@ -255,6 +277,7 @@ function App() {
             onDrawCard={handleDrawCard}
             onColorChoice={handleColorChoice}
             showColorPicker={showColorPicker}
+            onHandleStackedDraw={handleStackedDraw}
           />
         </div>
 
@@ -278,8 +301,10 @@ function App() {
             <li>• Sử dụng lá bài hành động một cách chiến thuật (Skip, Reverse, Draw 2, v.v.)</li>
             <li>• Gọi UNO khi còn 1 lá bài</li>
             <li>• Lá bài mới: SwapHands, DrawMinusTwo, ShuffleMyHand, BlockAll</li>
+            <li>• <strong>Cộng bài:</strong> +2 có thể cộng với +2 hoặc +4, +4 chỉ cộng với +4</li>
+            <li>• <strong>Loại bỏ:</strong> Người chơi có 35+ bài sẽ bị loại khỏi game</li>
+            <li>• <strong>Rút bài:</strong> Không giới hạn số lượng bài có thể rút</li>
             <li>• Người đầu tiên hết bài thắng cuộc!</li>
-            <li>• <strong>Rút bài:</strong> Nếu không có bài để đánh, rút 1 lá và chuyển lượt</li>
             {isMultiplayer && (
               <>
                 <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>

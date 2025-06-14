@@ -103,6 +103,10 @@ class SocketService {
       this.emitGameEvent({ type: 'CARD_DRAWN', ...data });
     });
 
+    this.socket.on('stacked-draw', () => {
+      this.emitGameEvent({ type: 'STACKED_DRAW' });
+    });
+
     this.socket.on('uno-called', (data: { playerId: string }) => {
       this.emitGameEvent({ type: 'UNO_CALLED', ...data });
     });
@@ -231,6 +235,12 @@ class SocketService {
   broadcastDrawCard(playerId: string, count: number): void {
     if (this.socket && this.isConnected) {
       this.socket.emit('broadcast-draw-card', { playerId, count });
+    }
+  }
+
+  broadcastStackedDraw(): void {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('broadcast-stacked-draw');
     }
   }
 

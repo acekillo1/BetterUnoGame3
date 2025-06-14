@@ -43,5 +43,9 @@ export interface GameState {
   gamePhase: 'waiting' | 'playing' | 'finished';
   winner?: Player;
   isBlockAllActive: boolean; // For BlockAll card effect
-  lastPlayedCard?: Card; // <-- Đã thêm thuộc tính này để khắc phục lỗi
+  lastPlayedCard?: Card;
+  // New stacking properties
+  stackedDrawCount: number; // Total cards to draw from stacked +2/+4 cards
+  stackingType: 'none' | 'draw-two' | 'wild-draw-four'; // What type of stacking is active
+  eliminatedPlayers: string[]; // Players eliminated for having 35+ cards
 }
