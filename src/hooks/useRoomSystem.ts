@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Room, RoomPlayer, CreateRoomData, JoinRoomData, RoomEvent, CreateJoinRoomResult } from '../types/Room';
-import { GameState, Player, Card, CardColor } from '../types/Card'; // Đảm bảo import GameState, Card, CardColor
+import { GameState, Player, Card, CardColor } from '../types/Card';
 import { socketService } from '../services/SocketService';
-import { createDeck, shuffleDeck } from '../utils/cardUtils';
+import { createDeck, shuffleDeck, canPlayCard } from '../utils/cardUtils';
 
-// Định nghĩa trạng thái của hook useRoomSystem
 interface RoomSystemState {
   currentRoom: Room | null;
   currentPlayerId: string | null;
@@ -28,34 +27,22 @@ export function useRoomSystem() {
     gameState: null
   });
 
-  /**
-   * Helper function để chuyển đổi dữ liệu người chơi từ server (chuỗi) sang client (Date object).
-   * Đảm bảo `joinedAt` luôn là Date object trên frontend.
-   * @param playerData Dữ liệu người chơi thô nhận từ server.
-   * @returns Đối tượng RoomPlayer đã được chuyển đổi với thuộc tính Date.
-   */
   const transformRoomPlayer = useCallback((playerData: any): RoomPlayer => {
     return {
       ...playerData,
-      joinedAt: new Date(playerData.joinedAt) // Chuyển đổi chuỗi `joinedAt` thành Date
+      joinedAt: new Date(playerData.joinedAt)
     };
   }, []);
 
-  /**
-   * Helper function để chuyển đổi dữ liệu phòng từ server (chuỗi) sang client (Date object).
-   * Đảm bảo `createdAt` và `joinedAt` luôn là Date object trên frontend.
-   * @param roomData Dữ liệu phòng thô nhận từ server.
-   * @returns Đối tượng Room đã được chuyển đổi với các thuộc tính Date.
-   */
   const transformRoomData = useCallback((roomData: any): Room => {
     return {
       ...roomData,
-      createdAt: new Date(roomData.createdAt), // Chuyển đổi chuỗi `createdAt` thành Date
-      players: roomData.players.map(transformRoomPlayer) // Sử dụng hàm mới cho người chơi
+      createdAt: new Date(roomData.createdAt),
+      players: roomData.players.map(transformRoomPlayer)
     };
-  }, [transformRoomPlayer]); // Thêm transformRoomPlayer vào dependency array
+  }, [transformRoomPlayer]);
 
-  // Theo dõi trạng thái kết nối socket
+  // Track connection status
   useEffect(() => {
     const checkConnection = () => {
       setState(prev => ({ 
@@ -65,27 +52,23 @@ export function useRoomSystem() {
     };
 
     checkConnection();
-    const interval = setInterval(checkConnection, 1000); // Kiểm tra mỗi giây
-    return () => clearInterval(interval); // Dọn dẹp interval khi component unmount
+    const interval = setInterval(checkConnection, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  /**
-   * Khởi tạo trạng thái game khi game bắt đầu (logic phía Host).
-   * @param room Đối tượng phòng hiện tại để lấy thông tin người chơi.
-   */
+  // Initialize game state (HOST ONLY)
   const initializeGameState = useCallback((room: Room) => {
     const deck = shuffleDeck(createDeck());
     
-    // Chuyển đổi người chơi trong phòng sang người chơi game (không có AI trong multiplayer)
     const players: Player[] = room.players.map(roomPlayer => ({
       id: roomPlayer.id,
       name: roomPlayer.name,
       cards: [],
-      isHuman: true, // Tất cả người chơi trong multiplayer là người thật
+      isHuman: true,
       hasCalledUno: false
     }));
 
-    // Chia 7 lá bài cho mỗi người chơi
+    // Deal 7 cards to each player
     let cardIndex = 0;
     for (let i = 0; i < 7; i++) {
       players.forEach(player => {
@@ -95,14 +78,13 @@ export function useRoomSystem() {
       });
     }
 
-    // Tìm lá bài không phải hành động đầu tiên cho lá bài trên cùng
+    // Find first number card for top card
     let topCardIndex = cardIndex;
     while (topCardIndex < deck.length && deck[topCardIndex].type !== 'number') {
       topCardIndex++;
     }
 
-    // Trường hợp dự phòng nếu không tìm thấy thẻ số (không nên xảy ra với bộ bài chuẩn)
-    const topCard = deck[topCardIndex] || deck[cardIndex]; 
+    const topCard = deck[topCardIndex] || deck[cardIndex];
     const remainingDeck = deck.filter((_, index) => index !== topCardIndex && index >= cardIndex);
 
     const gameState: GameState = {
@@ -114,20 +96,172 @@ export function useRoomSystem() {
       discardPile: [topCard],
       gamePhase: 'playing',
       isBlockAllActive: false,
-      wildColor: undefined, // Khởi tạo giá trị
-      winner: undefined, // Khởi tạo giá trị
-      lastPlayedCard: undefined, // Khởi tạo giá trị
+      wildColor: undefined,
+      winner: undefined,
+      lastPlayedCard: undefined,
     };
 
     setState(prev => ({ ...prev, gameState }));
     
-    // Phát sóng trạng thái game tới tất cả người chơi qua socket
+    // Broadcast initial game state to all players
     socketService.broadcastGameState(gameState);
   }, []);
 
-  /**
-   * Tải danh sách các phòng đang hoạt động từ server.
-   */
+  // Apply game action (HOST ONLY)
+  const applyGameAction = useCallback((action: any) => {
+    if (!state.isHost || !state.gameState) return;
+
+    setState(prev => {
+      if (!prev.gameState) return prev;
+
+      let newGameState = { ...prev.gameState };
+
+      switch (action.type) {
+        case 'PLAY_CARD':
+          newGameState = applyPlayCard(newGameState, action.playerId, action.card, action.chosenColor);
+          break;
+        case 'DRAW_CARD':
+          newGameState = applyDrawCard(newGameState, action.playerId, action.count);
+          break;
+        case 'CALL_UNO':
+          newGameState = applyCallUno(newGameState, action.playerId);
+          break;
+      }
+
+      // Broadcast updated game state
+      socketService.broadcastGameState(newGameState);
+      
+      return { ...prev, gameState: newGameState };
+    });
+  }, [state.isHost, state.gameState]);
+
+  // Game action functions
+  const applyPlayCard = (gameState: GameState, playerId: string, card: Card, chosenColor?: CardColor): GameState => {
+    const newState = { ...gameState };
+    const player = newState.players.find(p => p.id === playerId);
+    const currentPlayer = newState.players[newState.currentPlayerIndex];
+    
+    if (!player || player.id !== currentPlayer.id) return gameState;
+    
+    if (!canPlayCard(card, newState.topCard, newState.wildColor)) return gameState;
+    
+    if (newState.isBlockAllActive && card.type !== 'number') return gameState;
+
+    // Remove card from player's hand
+    player.cards = player.cards.filter(c => c.id !== card.id);
+    
+    // Add to discard pile
+    newState.discardPile.push(card);
+    newState.topCard = card;
+    newState.lastPlayedCard = card;
+    
+    // Handle wild color
+    if (card.type === 'wild' || card.type === 'wild-draw-four') {
+      newState.wildColor = chosenColor || 'red';
+    } else {
+      newState.wildColor = undefined;
+    }
+
+    // Reset BlockAll effect
+    newState.isBlockAllActive = false;
+    
+    // Check for UNO
+    if (player.cards.length === 1 && !player.hasCalledUno) {
+      player.hasCalledUno = true;
+    }
+
+    // Check win condition
+    if (player.cards.length === 0) {
+      newState.gamePhase = 'finished';
+      newState.winner = player;
+      return newState;
+    }
+
+    // Apply card effects and determine next player
+    let nextPlayerIndex = getNextPlayerIndex(newState.currentPlayerIndex, newState.players.length, newState.direction);
+    
+    switch (card.type) {
+      case 'skip':
+        nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        break;
+        
+      case 'reverse':
+        newState.direction = newState.direction === 'clockwise' ? 'counterclockwise' : 'clockwise';
+        if (newState.players.length === 2) {
+          nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        }
+        break;
+        
+      case 'draw-two':
+        drawCardsForPlayer(newState, nextPlayerIndex, 2);
+        nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        break;
+        
+      case 'wild-draw-four':
+        drawCardsForPlayer(newState, nextPlayerIndex, 4);
+        nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        break;
+        
+      case 'swap-hands':
+        const otherPlayers = newState.players.filter(p => p.id !== player.id);
+        if (otherPlayers.length > 0) {
+          const targetPlayer = otherPlayers[Math.floor(Math.random() * otherPlayers.length)];
+          const tempCards = player.cards;
+          player.cards = targetPlayer.cards;
+          targetPlayer.cards = tempCards;
+        }
+        break;
+        
+      case 'draw-minus-two':
+        const nextPlayer = newState.players[nextPlayerIndex];
+        if (nextPlayer.cards.length >= 2) {
+          for (let i = 0; i < 2; i++) {
+            const randomIndex = Math.floor(Math.random() * nextPlayer.cards.length);
+            const discardedCard = nextPlayer.cards.splice(randomIndex, 1)[0];
+            newState.discardPile.push(discardedCard);
+          }
+        } else {
+          drawCardsForPlayer(newState, nextPlayerIndex, 2);
+        }
+        break;
+        
+      case 'shuffle-my-hand':
+        const cardCount = player.cards.length;
+        newState.discardPile.push(...player.cards);
+        player.cards = [];
+        drawCardsForPlayer(newState, newState.currentPlayerIndex, cardCount);
+        break;
+        
+      case 'block-all':
+        newState.isBlockAllActive = true;
+        break;
+    }
+
+    newState.currentPlayerIndex = nextPlayerIndex;
+    return newState;
+  };
+
+  const applyDrawCard = (gameState: GameState, playerId: string, count: number): GameState => {
+    const newState = { ...gameState };
+    const player = newState.players.find(p => p.id === playerId);
+    
+    if (!player) return gameState;
+
+    drawCardsForPlayer(newState, newState.players.findIndex(p => p.id === playerId), count);
+    return newState;
+  };
+
+  const applyCallUno = (gameState: GameState, playerId: string): GameState => {
+    const newState = { ...gameState };
+    const player = newState.players.find(p => p.id === playerId);
+    
+    if (player && player.cards.length === 1) {
+      player.hasCalledUno = true;
+    }
+    
+    return newState;
+  };
+
   const loadActiveRooms = useCallback(async () => {
     if (!socketService.isSocketConnected()) {
       setState(prev => ({ ...prev, activeRooms: [] }));
@@ -138,19 +272,14 @@ export function useRoomSystem() {
       const rooms = await socketService.getActiveRooms();
       setState(prev => ({ 
         ...prev, 
-        activeRooms: rooms.map(transformRoomData) // Áp dụng chuyển đổi dữ liệu
+        activeRooms: rooms.map(transformRoomData)
       }));
     } catch (error) {
       console.error('Failed to load rooms:', error);
       setState(prev => ({ ...prev, error: 'Không thể tải danh sách phòng' }));
     }
-  }, [transformRoomData]); // Thêm transformRoomData vào dependency array
+  }, [transformRoomData]);
 
-  /**
-   * Tạo một phòng game mới.
-   * @param data Dữ liệu cần thiết để tạo phòng.
-   * @returns Promise trả về kết quả tạo phòng (thành công/thất bại, thông tin phòng).
-   */
   const createRoom = useCallback(async (data: CreateRoomData): Promise<CreateJoinRoomResult> => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     
@@ -158,14 +287,14 @@ export function useRoomSystem() {
       const result = await socketService.createRoom(data); 
       
       if (result.success && result.room && result.playerId) {
-        const transformedRoom = transformRoomData(result.room); // Chuyển đổi dữ liệu phòng nhận được
+        const transformedRoom = transformRoomData(result.room);
         setState(prev => ({
           ...prev,
           currentRoom: transformedRoom,
           currentPlayerId: result.playerId!,
           isHost: true,
           loading: false,
-          gameState: null // Đặt lại trạng thái game
+          gameState: null
         }));
         return { success: true, room: transformedRoom, playerId: result.playerId };
       } else {
@@ -185,13 +314,8 @@ export function useRoomSystem() {
       }));
       return { success: false, error: 'Lỗi kết nối đến server' };
     }
-  }, [transformRoomData]); // Thêm transformRoomData vào dependency array
+  }, [transformRoomData]);
 
-  /**
-   * Tham gia một phòng game hiện có.
-   * @param data Dữ liệu cần thiết để tham gia phòng.
-   * @returns Promise trả về kết quả tham gia phòng (thành công/thất bại, thông tin phòng).
-   */
   const joinRoom = useCallback(async (data: JoinRoomData): Promise<CreateJoinRoomResult> => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     
@@ -199,14 +323,14 @@ export function useRoomSystem() {
       const result = await socketService.joinRoom(data); 
       
       if (result.success && result.room && result.playerId) {
-        const transformedRoom = transformRoomData(result.room); // Chuyển đổi dữ liệu phòng nhận được
+        const transformedRoom = transformRoomData(result.room);
         setState(prev => ({
           ...prev,
           currentRoom: transformedRoom,
           currentPlayerId: result.playerId!,
           isHost: false,
           loading: false,
-          gameState: null // Đặt lại trạng thái game
+          gameState: null
         }));
       } else {
         setState(prev => ({
@@ -217,8 +341,7 @@ export function useRoomSystem() {
       }
       
       return result;
-    }
-     catch (error: any) {
+    } catch (error: any) {
       console.error('Lỗi khi tham gia phòng:', error);
       setState(prev => ({
         ...prev,
@@ -227,11 +350,8 @@ export function useRoomSystem() {
       }));
       return { success: false, error: 'Lỗi kết nối đến server' };
     }
-  }, [transformRoomData]); // Thêm transformRoomData vào dependency array
+  }, [transformRoomData]);
 
-  /**
-   * Rời khỏi phòng hiện tại.
-   */
   const leaveRoom = useCallback(() => {
     socketService.leaveRoom();
     setState(prev => ({
@@ -243,11 +363,6 @@ export function useRoomSystem() {
     }));
   }, []);
 
-  /**
-   * Kick một người chơi khỏi phòng (chỉ Host mới có quyền).
-   * @param targetPlayerId ID của người chơi cần kick.
-   * @returns True nếu kick thành công, ngược lại False.
-   */
   const kickPlayer = useCallback(async (targetPlayerId: string) => {
     if (state.isHost) {
       const result = await socketService.kickPlayer(targetPlayerId);
@@ -256,15 +371,11 @@ export function useRoomSystem() {
     return false;
   }, [state.isHost]);
 
-  /**
-   * Bắt đầu game (chỉ Host mới có quyền).
-   * @returns True nếu game bắt đầu thành công, ngược lại False.
-   */
   const startGame = useCallback(async () => {
     if (state.isHost && state.currentRoom) {
       const result = await socketService.startGame();
       if (result.success) {
-        initializeGameState(state.currentRoom); // Khởi tạo trạng thái game cục bộ cho host
+        initializeGameState(state.currentRoom);
         return true;
       } else if (result.error) {
         setState(prev => ({ ...prev, error: result.error! }));
@@ -274,10 +385,6 @@ export function useRoomSystem() {
     return false;
   }, [state.isHost, state.currentRoom, initializeGameState]);
 
-  /**
-   * Chuyển đổi trạng thái sẵn sàng của người chơi.
-   * @returns True nếu trạng thái sẵn sàng thay đổi thành công, ngược lại False.
-   */
   const toggleReady = useCallback(async () => {
     if (!state.isHost) {
       const result = await socketService.toggleReady();
@@ -286,109 +393,57 @@ export function useRoomSystem() {
     return false;
   }, [state.isHost]);
 
-  // Các hành động trong game cho chế độ multiplayer
+  // Game actions - only send to host for processing
   const playCard = useCallback((playerId: string, card: Card, chosenColor?: CardColor) => {
     if (!state.gameState || !state.currentPlayerId) return;
     
-    // Phát sóng hành động chơi bài tới tất cả người chơi qua socket
-    socketService.broadcastCardPlay(playerId, card, chosenColor);
-    
-    // Cập nhật trạng thái cục bộ để phản hồi tức thì (sẽ bị ghi đè bởi trạng thái server sau)
-    setState(prev => {
-      if (!prev.gameState) return prev;
-      
-      const newGameState = { ...prev.gameState };
-      const player = newGameState.players.find(p => p.id === playerId);
-      const currentPlayer = newGameState.players[newGameState.currentPlayerIndex];
-      
-      if (!player || player.id !== currentPlayer.id) return prev; // Không phải lượt của người chơi hiện tại hoặc không tìm thấy người chơi
-      
-      player.cards = player.cards.filter(c => c.id !== card.id);
-      
-      newGameState.discardPile.push(card);
-      newGameState.topCard = card;
-      
-      if (card.type === 'wild' || card.type === 'wild-draw-four') {
-        newGameState.wildColor = chosenColor || 'red'; // Mặc định là đỏ nếu không được chọn
-      } else {
-        newGameState.wildColor = undefined;
-      }
-      
-      if (player.cards.length === 0) {
-        newGameState.gamePhase = 'finished';
-        newGameState.winner = player;
-      } else {
-        newGameState.currentPlayerIndex = (newGameState.currentPlayerIndex + 1) % newGameState.players.length;
-      }
-      
-      return { ...prev, gameState: newGameState };
-    });
-  }, [state.gameState, state.currentPlayerId]);
+    if (state.isHost) {
+      // Host processes the action immediately
+      applyGameAction({ type: 'PLAY_CARD', playerId, card, chosenColor });
+    } else {
+      // Non-host sends action to server for host to process
+      socketService.broadcastCardPlay(playerId, card, chosenColor);
+    }
+  }, [state.gameState, state.currentPlayerId, state.isHost, applyGameAction]);
 
   const drawCard = useCallback((playerId: string, count: number = 1) => {
     if (!state.gameState || !state.currentPlayerId) return [];
     
-    // Phát sóng hành động rút bài qua socket
-    socketService.broadcastDrawCard(playerId, count);
+    if (state.isHost) {
+      // Host processes the action immediately
+      applyGameAction({ type: 'DRAW_CARD', playerId, count });
+    } else {
+      // Non-host sends action to server for host to process
+      socketService.broadcastDrawCard(playerId, count);
+    }
     
-    const drawnCards: Card[] = [];
-    setState(prev => {
-      if (!prev.gameState) return prev;
-      
-      const newGameState = { ...prev.gameState };
-      const player = newGameState.players.find(p => p.id === playerId);
-      
-      if (!player) return prev;
-      
-      for (let i = 0; i < count; i++) {
-        if (newGameState.drawPile.length > 0) {
-          const card = newGameState.drawPile.pop()!;
-          player.cards.push(card);
-          drawnCards.push(card);
-        }
-      }
-      
-      return { ...prev, gameState: newGameState };
-    });
-    
-    return drawnCards;
-  }, [state.gameState, state.currentPlayerId]);
+    return [];
+  }, [state.gameState, state.currentPlayerId, state.isHost, applyGameAction]);
 
   const callUno = useCallback((playerId: string) => {
     if (!state.gameState) return;
     
-    // Phát sóng hành động gọi UNO qua socket
-    socketService.broadcastUnoCall(playerId);
-    
-    setState(prev => {
-      if (!prev.gameState) return prev;
-      
-      const newGameState = { ...prev.gameState };
-      const player = newGameState.players.find(p => p.id === playerId);
-      
-      if (player && player.cards.length === 1) {
-        player.hasCalledUno = true;
-      }
-      
-      return { ...prev, gameState: newGameState };
-    });
-  }, [state.gameState]);
+    if (state.isHost) {
+      // Host processes the action immediately
+      applyGameAction({ type: 'CALL_UNO', playerId });
+    } else {
+      // Non-host sends action to server for host to process
+      socketService.broadcastUnoCall(playerId);
+    }
+  }, [state.gameState, state.isHost, applyGameAction]);
 
-  // Xóa thông báo lỗi
   const clearError = useCallback(() => {
     setState(prev => ({ ...prev, error: null }));
   }, []);
 
-  // Thiết lập các trình lắng nghe sự kiện từ socket
+  // Setup event listeners
   useEffect(() => {
-    // Sự kiện toàn cầu
     const unsubscribeGlobal = socketService.addGlobalEventListener((event: any) => {
       switch (event.type) {
         case 'ROOMS_UPDATED':
-          // Chuyển đổi rooms khi chúng được cập nhật toàn cục
           setState(prev => ({ 
             ...prev, 
-            activeRooms: event.rooms.map(transformRoomData) // Áp dụng chuyển đổi dữ liệu
+            activeRooms: event.rooms.map(transformRoomData)
           }));
           break;
         case 'CONNECTION_FAILED':
@@ -396,25 +451,23 @@ export function useRoomSystem() {
             ...prev, 
             error: 'Mất kết nối đến server. Vui lòng thử lại.',
             isConnected: false,
-            // Xóa thông tin phòng và người chơi hiện tại khi mất kết nối
             currentRoom: null, 
             currentPlayerId: null,
             isHost: false,
             gameState: null,
-            activeRooms: [] // Xóa cả danh sách phòng đang hoạt động
+            activeRooms: []
           }));
           break;
       }
     });
 
-    // Sự kiện dành riêng cho phòng
     const unsubscribeRoom = socketService.addEventListener('current-room', (event: RoomEvent) => {
       setState(prev => {
         switch (event.type) {
           case 'PLAYER_JOINED':
             if (prev.currentRoom) {
               const updatedRoom = { ...prev.currentRoom };
-              updatedRoom.players.push(transformRoomPlayer(event.player)); // <-- SỬA LỖI Ở ĐÂY
+              updatedRoom.players.push(transformRoomPlayer(event.player));
               updatedRoom.currentPlayers++;
               return { ...prev, currentRoom: updatedRoom };
             }
@@ -425,7 +478,6 @@ export function useRoomSystem() {
               const updatedRoom = { ...prev.currentRoom };
               updatedRoom.players = updatedRoom.players.filter(p => p.id !== event.playerId);
               updatedRoom.currentPlayers--;
-              // Cập nhật host nếu cần
               if (event.newHost) {
                 updatedRoom.hostId = event.newHost.id;
                 updatedRoom.hostName = event.newHost.name;
@@ -433,7 +485,6 @@ export function useRoomSystem() {
               }
               return { ...prev, currentRoom: updatedRoom, isHost: prev.currentPlayerId === updatedRoom.hostId };
             }
-            // Nếu người chơi hiện tại rời đi (hoặc bị kick), chúng ta nên xóa thông tin phòng
             if (event.playerId === prev.currentPlayerId) {
                 return { 
                     ...prev, 
@@ -468,7 +519,6 @@ export function useRoomSystem() {
             return prev;
 
           case 'ROOM_UPDATED':
-            // Chuyển đổi dữ liệu phòng được cập nhật
             return { ...prev, currentRoom: transformRoomData(event.room) };
 
           case 'KICKED_FROM_ROOM':
@@ -487,17 +537,30 @@ export function useRoomSystem() {
       });
     });
 
-    // Sự kiện game
+    // Game events - only non-hosts listen for game state updates
     const unsubscribeGame = socketService.addGameEventListener((event: any) => {
       setState(prev => {
         switch (event.type) {
           case 'GAME_STATE_UPDATE':
+            // All players receive and apply the authoritative game state from host
             return { ...prev, gameState: event.gameState };
           case 'CARD_PLAYED':
+            // Host processes this action
+            if (prev.isHost) {
+              applyGameAction({ type: 'PLAY_CARD', playerId: event.playerId, card: event.card, chosenColor: event.chosenColor });
+            }
+            return prev;
           case 'CARD_DRAWN':
+            // Host processes this action
+            if (prev.isHost) {
+              applyGameAction({ type: 'DRAW_CARD', playerId: event.playerId, count: event.count });
+            }
+            return prev;
           case 'UNO_CALLED':
-            // Các sự kiện này chỉ là thông báo; trạng thái game đầy đủ sẽ được gửi qua GAME_STATE_UPDATE
-            // nếu bạn muốn cập nhật trạng thái game dựa trên các sự kiện này, cần logic cụ thể hơn.
+            // Host processes this action
+            if (prev.isHost) {
+              applyGameAction({ type: 'CALL_UNO', playerId: event.playerId });
+            }
             return prev;
           default:
             return prev;
@@ -510,7 +573,7 @@ export function useRoomSystem() {
       unsubscribeRoom();
       unsubscribeGame();
     };
-  }, [transformRoomData, transformRoomPlayer]); // Thêm transformRoomPlayer vào dependency array
+  }, [transformRoomData, transformRoomPlayer, applyGameAction]);
   
   return {
     ...state,
@@ -526,4 +589,37 @@ export function useRoomSystem() {
     drawCard,
     callUno
   };
+}
+
+function getNextPlayerIndex(currentIndex: number, totalPlayers: number, direction: 'clockwise' | 'counterclockwise'): number {
+  if (direction === 'clockwise') {
+    return (currentIndex + 1) % totalPlayers;
+  } else {
+    return currentIndex === 0 ? totalPlayers - 1 : currentIndex - 1;
+  }
+}
+
+function drawCardsForPlayer(gameState: GameState, playerIndex: number, count: number) {
+  const player = gameState.players[playerIndex];
+  
+  for (let i = 0; i < count; i++) {
+    if (gameState.drawPile.length === 0) {
+      const newDrawPile = shuffleDeck(gameState.discardPile.slice(0, -1));
+      gameState.drawPile = newDrawPile;
+      gameState.discardPile = [gameState.topCard];
+    }
+
+    if (gameState.drawPile.length > 0) {
+      const card = gameState.drawPile.pop()!;
+      player.cards.push(card);
+
+      if (player.cards.length > 50) {
+        gameState.players = gameState.players.filter(p => p.id !== player.id);
+        if (gameState.currentPlayerIndex >= gameState.players.length) {
+          gameState.currentPlayerIndex = 0;
+        }
+        break;
+      }
+    }
+  }
 }

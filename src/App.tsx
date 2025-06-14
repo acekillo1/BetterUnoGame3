@@ -190,6 +190,11 @@ function App() {
               ⚠️ Mất kết nối server - Game có thể không hoạt động bình thường
             </div>
           )}
+          {roomGameState && (
+            <div className="mt-2 text-blue-300 text-sm">
+              {isHost ? '👑 Bạn là Host - Quản lý trạng thái game' : '👥 Đang đồng bộ với Host'}
+            </div>
+          )}
         </div>
 
         {/* Game Status */}
@@ -243,6 +248,12 @@ function App() {
             <li>• Call UNO when you have one card left</li>
             <li>• New cards: SwapHands, DrawMinusTwo, ShuffleMyHand, BlockAll</li>
             <li>• First player to run out of cards wins!</li>
+            {roomGameState && (
+              <>
+                <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>
+                <li>• <strong>Real-time:</strong> Mọi người chơi cùng một trận game</li>
+              </>
+            )}
           </ul>
         </div>
       </div>
