@@ -84,31 +84,38 @@ export function shuffleDeck(deck: Card[]): Card[] {
 }
 
 export function canPlayCard(card: Card, topCard: Card, wildColor?: CardColor): boolean {
-  // Wild cards can always be played
+  // Wild cards can always be played (except when BlockAll is active, but that's checked elsewhere)
   if (card.type === 'wild' || card.type === 'wild-draw-four') {
     return true;
   }
   
-  // If there's a wild color set, match that
+  // If there's a wild color set (from previous wild card), ONLY match that color
   if (wildColor && wildColor !== 'wild') {
+    console.log(`🎯 Wild color active: ${wildColor}, checking card: ${card.color} ${card.type} ${card.value || ''}`);
     return card.color === wildColor;
   }
   
-  // Match color
+  // No wild color active - check normal UNO rules
+  
+  // 1. Match color
   if (card.color === topCard.color) {
+    console.log(`✅ Color match: ${card.color} matches ${topCard.color}`);
     return true;
   }
   
-  // Match number
+  // 2. Match number (only for number cards)
   if (card.type === 'number' && topCard.type === 'number' && card.value === topCard.value) {
+    console.log(`✅ Number match: ${card.value} matches ${topCard.value}`);
     return true;
   }
   
-  // Match action type
-  if (card.type === topCard.type) {
+  // 3. Match action type (skip on skip, reverse on reverse, etc.)
+  if (card.type === topCard.type && card.type !== 'number') {
+    console.log(`✅ Action match: ${card.type} matches ${topCard.type}`);
     return true;
   }
   
+  console.log(`❌ No match: Card(${card.color} ${card.type} ${card.value || ''}) vs Top(${topCard.color} ${topCard.type} ${topCard.value || ''}) wildColor: ${wildColor || 'none'}`);
   return false;
 }
 
@@ -148,4 +155,23 @@ export function getCardSymbol(card: Card): string {
   };
   
   return symbols[card.type];
+}
+
+// Helper function to validate if a card play is legal
+export function validateCardPlay(card: Card, topCard: Card, wildColor?: CardColor, isBlockAllActive?: boolean): { valid: boolean; reason?: string } {
+  // Check BlockAll restriction first
+  if (isBlockAllActive && card.type !== 'number') {
+    return { valid: false, reason: 'BlockAll active - only number cards allowed' };
+  }
+  
+  // Check basic UNO rules
+  if (!canPlayCard(card, topCard, wildColor)) {
+    if (wildColor && wildColor !== 'wild') {
+      return { valid: false, reason: `Must match wild color: ${wildColor}` };
+    } else {
+      return { valid: false, reason: `Must match color (${topCard.color}), number (${topCard.value}), or action (${topCard.type})` };
+    }
+  }
+  
+  return { valid: true };
 }

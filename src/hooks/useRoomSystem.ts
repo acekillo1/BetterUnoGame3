@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Room, RoomPlayer, CreateRoomData, JoinRoomData, RoomEvent, CreateJoinRoomResult } from '../types/Room';
 import { GameState, Player, Card, CardColor } from '../types/Card';
 import { socketService } from '../services/SocketService';
-import { createDeck, shuffleDeck, canPlayCard } from '../utils/cardUtils';
+import { createDeck, shuffleDeck, canPlayCard, validateCardPlay } from '../utils/cardUtils';
 
 interface RoomSystemState {
   currentRoom: Room | null;
@@ -96,10 +96,16 @@ export function useRoomSystem() {
       discardPile: [topCard],
       gamePhase: 'playing',
       isBlockAllActive: false,
-      wildColor: undefined,
+      wildColor: undefined, // IMPORTANT: Start with no wild color
       winner: undefined,
       lastPlayedCard: undefined,
     };
+
+    console.log('🎮 Game initialized by host:', {
+      topCard: `${topCard.color} ${topCard.type} ${topCard.value || ''}`,
+      wildColor: gameState.wildColor,
+      players: players.map(p => `${p.name}: ${p.cards.length} cards`)
+    });
 
     setState(prev => ({ ...prev, gameState }));
     
@@ -141,11 +147,28 @@ export function useRoomSystem() {
     const player = newState.players.find(p => p.id === playerId);
     const currentPlayer = newState.players[newState.currentPlayerIndex];
     
-    if (!player || player.id !== currentPlayer.id) return gameState;
+    console.log('🎯 Attempting to play card:', {
+      player: player?.name,
+      card: `${card.color} ${card.type} ${card.value || ''}`,
+      topCard: `${newState.topCard.color} ${newState.topCard.type} ${newState.topCard.value || ''}`,
+      wildColor: newState.wildColor,
+      isCurrentPlayer: player?.id === currentPlayer?.id
+    });
     
-    if (!canPlayCard(card, newState.topCard, newState.wildColor)) return gameState;
+    // Validate player and turn
+    if (!player || player.id !== currentPlayer.id) {
+      console.log('❌ Not player turn or player not found');
+      return gameState;
+    }
     
-    if (newState.isBlockAllActive && card.type !== 'number') return gameState;
+    // Validate card play using enhanced validation
+    const validation = validateCardPlay(card, newState.topCard, newState.wildColor, newState.isBlockAllActive);
+    if (!validation.valid) {
+      console.log('❌ Invalid card play:', validation.reason);
+      return gameState;
+    }
+
+    console.log('✅ Card play validated, applying...');
 
     // Remove card from player's hand
     player.cards = player.cards.filter(c => c.id !== card.id);
@@ -155,11 +178,13 @@ export function useRoomSystem() {
     newState.topCard = card;
     newState.lastPlayedCard = card;
     
-    // Handle wild color
+    // Handle wild color - CRITICAL: Clear wild color for non-wild cards
     if (card.type === 'wild' || card.type === 'wild-draw-four') {
       newState.wildColor = chosenColor || 'red';
+      console.log(`🌈 Wild card played, new wild color: ${newState.wildColor}`);
     } else {
-      newState.wildColor = undefined;
+      newState.wildColor = undefined; // Clear wild color when non-wild card is played
+      console.log(`🎨 Regular card played, wild color cleared`);
     }
 
     // Reset BlockAll effect
@@ -174,6 +199,7 @@ export function useRoomSystem() {
     if (player.cards.length === 0) {
       newState.gamePhase = 'finished';
       newState.winner = player;
+      console.log('🏆 Game finished, winner:', player.name);
       return newState;
     }
 
@@ -183,6 +209,7 @@ export function useRoomSystem() {
     switch (card.type) {
       case 'skip':
         nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        console.log('⏭️ Skip card: skipping next player');
         break;
         
       case 'reverse':
@@ -190,16 +217,19 @@ export function useRoomSystem() {
         if (newState.players.length === 2) {
           nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
         }
+        console.log('🔄 Reverse card: direction changed to', newState.direction);
         break;
         
       case 'draw-two':
         drawCardsForPlayer(newState, nextPlayerIndex, 2);
         nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        console.log('📥 Draw 2 card: next player draws 2 and loses turn');
         break;
         
       case 'wild-draw-four':
         drawCardsForPlayer(newState, nextPlayerIndex, 4);
         nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, newState.players.length, newState.direction);
+        console.log('📥 Wild Draw 4 card: next player draws 4 and loses turn');
         break;
         
       case 'swap-hands':
@@ -209,6 +239,7 @@ export function useRoomSystem() {
           const tempCards = player.cards;
           player.cards = targetPlayer.cards;
           targetPlayer.cards = tempCards;
+          console.log('🔄 Swap hands: cards swapped between', player.name, 'and', targetPlayer.name);
         }
         break;
         
@@ -220,8 +251,10 @@ export function useRoomSystem() {
             const discardedCard = nextPlayer.cards.splice(randomIndex, 1)[0];
             newState.discardPile.push(discardedCard);
           }
+          console.log('📤 Draw Minus 2: next player discards 2 cards');
         } else {
           drawCardsForPlayer(newState, nextPlayerIndex, 2);
+          console.log('📥 Draw Minus 2: next player draws 2 cards (not enough to discard)');
         }
         break;
         
@@ -230,14 +263,24 @@ export function useRoomSystem() {
         newState.discardPile.push(...player.cards);
         player.cards = [];
         drawCardsForPlayer(newState, newState.currentPlayerIndex, cardCount);
+        console.log('🔀 Shuffle My Hand: player reshuffles hand');
         break;
         
       case 'block-all':
         newState.isBlockAllActive = true;
+        console.log('🛡️ Block All: only number cards allowed next turn');
         break;
     }
 
     newState.currentPlayerIndex = nextPlayerIndex;
+    
+    console.log('🎮 Turn completed:', {
+      nextPlayer: newState.players[nextPlayerIndex].name,
+      topCard: `${newState.topCard.color} ${newState.topCard.type} ${newState.topCard.value || ''}`,
+      wildColor: newState.wildColor,
+      direction: newState.direction
+    });
+    
     return newState;
   };
 
@@ -248,6 +291,7 @@ export function useRoomSystem() {
     if (!player) return gameState;
 
     drawCardsForPlayer(newState, newState.players.findIndex(p => p.id === playerId), count);
+    console.log(`📥 ${player.name} drew ${count} card(s)`);
     return newState;
   };
 
@@ -257,6 +301,7 @@ export function useRoomSystem() {
     
     if (player && player.cards.length === 1) {
       player.hasCalledUno = true;
+      console.log(`🎯 ${player.name} called UNO!`);
     }
     
     return newState;
@@ -543,6 +588,11 @@ export function useRoomSystem() {
         switch (event.type) {
           case 'GAME_STATE_UPDATE':
             // All players receive and apply the authoritative game state from host
+            console.log('📡 Received game state update:', {
+              topCard: event.gameState.topCard ? `${event.gameState.topCard.color} ${event.gameState.topCard.type} ${event.gameState.topCard.value || ''}` : 'none',
+              wildColor: event.gameState.wildColor,
+              currentPlayer: event.gameState.players[event.gameState.currentPlayerIndex]?.name
+            });
             return { ...prev, gameState: event.gameState };
           case 'CARD_PLAYED':
             // Host processes this action

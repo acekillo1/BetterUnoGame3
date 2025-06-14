@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardColor } from './types/Card';
 import { useGameState } from './hooks/useGameState';
 import { useRoomSystem } from './hooks/useRoomSystem';
-import { canPlayCard } from './utils/cardUtils';
+import { canPlayCard, validateCardPlay } from './utils/cardUtils';
 import GameBoard from './components/GameBoard';
 import PlayerHand from './components/PlayerHand';
 import GameStatus from './components/GameStatus';
@@ -91,18 +91,31 @@ function App() {
   const otherPlayers = gameState.players.filter(p => p.id !== currentPlayer?.id);
   const isCurrentPlayerTurn = gameState.players[gameState.currentPlayerIndex]?.id === currentPlayer?.id;
 
-  const playableCards = currentPlayer ? currentPlayer.cards.filter(card => 
-    canPlayCard(card, gameState.topCard, gameState.wildColor) &&
-    (!gameState.isBlockAllActive || card.type === 'number')
-  ) : [];
+  // Enhanced playable cards validation
+  const playableCards = currentPlayer ? currentPlayer.cards.filter(card => {
+    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive);
+    return validation.valid;
+  }) : [];
 
   const handleCardClick = (card: Card) => {
-    if (!isCurrentPlayerTurn || !playableCards.some(c => c.id === card.id)) return;
+    if (!isCurrentPlayerTurn) {
+      console.log('❌ Not your turn!');
+      return;
+    }
+    
+    // Validate card play before allowing selection
+    const validation = validateCardPlay(card, gameState.topCard, gameState.wildColor, gameState.isBlockAllActive);
+    if (!validation.valid) {
+      console.log('❌ Invalid card play:', validation.reason);
+      // You could show a toast/notification here with validation.reason
+      return;
+    }
 
     if (card.type === 'wild' || card.type === 'wild-draw-four') {
       setSelectedCard(card);
       setShowColorPicker(true);
     } else {
+      console.log('✅ Playing card:', `${card.color} ${card.type} ${card.value || ''}`);
       playCard(currentPlayer!.id, card);
       setSelectedCard(null);
     }
@@ -110,6 +123,7 @@ function App() {
 
   const handleColorChoice = (color: CardColor) => {
     if (selectedCard && currentPlayer) {
+      console.log('✅ Playing wild card with color:', color);
       playCard(currentPlayer.id, selectedCard, color);
       setSelectedCard(null);
     }
@@ -118,6 +132,7 @@ function App() {
 
   const handleDrawCard = () => {
     if (isCurrentPlayerTurn && currentPlayer) {
+      console.log('📥 Drawing card for:', currentPlayer.name);
       drawCard(currentPlayer.id, 1);
     }
   };
@@ -252,6 +267,7 @@ function App() {
               <>
                 <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>
                 <li>• <strong>Real-time:</strong> Mọi người chơi cùng một trận game</li>
+                <li>• <strong>Validation:</strong> Chỉ có thể đánh bài hợp lệ theo luật UNO</li>
               </>
             )}
           </ul>
