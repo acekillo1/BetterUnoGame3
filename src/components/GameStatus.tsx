@@ -84,11 +84,11 @@ const GameStatus: React.FC<GameStatusProps> = ({
                   className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 hover:scale-105 shadow-lg"
                 >
                   <RotateCcw className="w-5 h-5" />
-                  Về Lobby
+                  Chơi Trận Mới
                 </button>
               ) : (
                 <div className="text-white/70 text-sm">
-                  Chờ Host quyết định...
+                  Chờ Host bắt đầu trận mới...
                 </div>
               )}
             </>

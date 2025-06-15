@@ -275,6 +275,37 @@ io.on('connection', (socket) => {
     callback({ success: true });
   });
 
+  // End game
+  socket.on('end-game', (callback) => {
+    const playerInfo = players.get(socket.id);
+    if (!playerInfo) {
+      callback({ success: false });
+      return;
+    }
+
+    const room = rooms.get(playerInfo.roomId);
+    if (!room || room.hostId !== playerInfo.playerId) {
+      callback({ success: false });
+      return;
+    }
+
+    room.status = 'waiting';
+    room.gameInProgress = false;
+
+    // Reset all players ready status except host
+    room.players.forEach(player => {
+      if (!player.isHost) {
+        player.isReady = false;
+      }
+    });
+
+    // Notify all players
+    io.to(playerInfo.roomId).emit('game-ended', { room });
+    io.emit('rooms-updated', getActiveRooms());
+    
+    callback({ success: true });
+  });
+
   // Get active rooms
   socket.on('get-rooms', (callback) => {
     callback(getActiveRooms());

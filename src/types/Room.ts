@@ -50,6 +50,7 @@ export type RoomEvent =
   | { type: 'PLAYER_LEFT'; playerId: string; newHost?: RoomPlayer } // newHost có thể có
   | { type: 'HOST_CHANGED'; newHostId: string }
   | { type: 'GAME_STARTED' }
+  | { type: 'GAME_ENDED' }
   | { type: 'ROOM_UPDATED'; room: Room } // Gửi toàn bộ đối tượng room đã cập nhật
   | { type: 'PLAYER_KICKED'; playerId: string }
   | { type: 'KICKED_FROM_ROOM' };

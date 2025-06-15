@@ -86,6 +86,10 @@ class SocketService {
       this.emitRoomEvent({ type: 'GAME_STARTED' });
     });
 
+    this.socket.on('game-ended', (data: { room: Room }) => {
+      this.emitRoomEvent({ type: 'GAME_ENDED' });
+    });
+
     this.socket.on('kicked-from-room', () => {
       this.emitRoomEvent({ type: 'KICKED_FROM_ROOM' });
     });
@@ -188,6 +192,19 @@ class SocketService {
       }
 
       this.socket.emit('start-game', (response: { success: boolean; error?: string }) => {
+        resolve(response);
+      });
+    });
+  }
+
+  async endGame(): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      if (!this.socket || !this.isConnected) {
+        resolve({ success: false, error: 'Không có kết nối đến server' });
+        return;
+      }
+
+      this.socket.emit('end-game', (response: { success: boolean; error?: string }) => {
         resolve(response);
       });
     });

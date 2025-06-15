@@ -31,6 +31,7 @@ function App() {
     leaveRoom,
     kickPlayer,
     startGame,
+    restartGame,
     toggleReady,
     loadActiveRooms,
     clearError,
@@ -175,10 +176,15 @@ function App() {
     }
   };
 
-  const handleGameRestart = () => {
+  const handleGameRestart = async () => {
     if (isMultiplayer) {
-      // In multiplayer, go back to lobby
-      setAppState('room-lobby');
+      if (isHost) {
+        // Host restarts the game - go back to lobby
+        const success = await restartGame();
+        if (success) {
+          setAppState('room-lobby');
+        }
+      }
     } else {
       // In single player, reset local game
       resetGame();

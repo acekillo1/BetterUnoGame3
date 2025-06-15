@@ -505,6 +505,38 @@ export function useRoomSystem() {
     return false;
   }, [state.isHost, state.currentRoom, initializeGameState]);
 
+  const restartGame = useCallback(async () => {
+    if (state.isHost && state.currentRoom) {
+      // Reset room to waiting state
+      setState(prev => {
+        if (prev.currentRoom) {
+          const updatedRoom = { ...prev.currentRoom };
+          updatedRoom.status = 'waiting';
+          updatedRoom.gameInProgress = false;
+          
+          // Reset all players ready status except host
+          updatedRoom.players.forEach(player => {
+            if (!player.isHost) {
+              player.isReady = false;
+            }
+          });
+          
+          return {
+            ...prev,
+            currentRoom: updatedRoom,
+            gameState: null
+          };
+        }
+        return prev;
+      });
+      
+      // Notify server about game end
+      const result = await socketService.endGame();
+      return result.success;
+    }
+    return false;
+  }, [state.isHost, state.currentRoom]);
+
   const toggleReady = useCallback(async () => {
     if (!state.isHost) {
       const result = await socketService.toggleReady();
@@ -650,6 +682,27 @@ export function useRoomSystem() {
             }
             return prev;
 
+          case 'GAME_ENDED':
+            if (prev.currentRoom) {
+              const updatedRoom = { ...prev.currentRoom };
+              updatedRoom.status = 'waiting';
+              updatedRoom.gameInProgress = false;
+              
+              // Reset all players ready status except host
+              updatedRoom.players.forEach(player => {
+                if (!player.isHost) {
+                  player.isReady = false;
+                }
+              });
+              
+              return { 
+                ...prev, 
+                currentRoom: updatedRoom,
+                gameState: null
+              };
+            }
+            return prev;
+
           case 'ROOM_UPDATED':
             return { ...prev, currentRoom: transformRoomData(event.room) };
 
@@ -727,6 +780,7 @@ export function useRoomSystem() {
     leaveRoom,
     kickPlayer,
     startGame,
+    restartGame,
     toggleReady,
     loadActiveRooms,
     clearError,
