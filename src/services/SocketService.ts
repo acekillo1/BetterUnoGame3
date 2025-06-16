@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { Room, RoomPlayer, CreateRoomData, JoinRoomData, RoomEvent } from '../types/Room';
 import { GameState, Card, CardColor } from '../types/Card';
+import { ChatMessage } from '../types/Chat';
 
 interface ServerResponse<T = any> {
   success: boolean;
@@ -14,6 +15,7 @@ class SocketService {
   private socket: Socket | null = null;
   private eventListeners: Map<string, ((event: RoomEvent) => void)[]> = new Map();
   private gameEventListeners: ((event: any) => void)[] = [];
+  private chatEventListeners: ((message: ChatMessage) => void)[] = [];
   private isConnected = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -113,6 +115,16 @@ class SocketService {
 
     this.socket.on('uno-called', (data: { playerId: string }) => {
       this.emitGameEvent({ type: 'UNO_CALLED', ...data });
+    });
+
+    // Chat events
+    this.socket.on('chat-message', (message: ChatMessage) => {
+      // Convert timestamp string back to Date object
+      const messageWithDate = {
+        ...message,
+        timestamp: new Date(message.timestamp)
+      };
+      this.emitChatEvent(messageWithDate);
     });
   }
 
@@ -267,6 +279,13 @@ class SocketService {
     }
   }
 
+  // Chat actions
+  sendChatMessage(message: ChatMessage): void {
+    if (this.socket && this.isConnected) {
+      this.socket.emit('send-chat-message', message);
+    }
+  }
+
   // Event system
   addEventListener(roomId: string, callback: (event: RoomEvent) => void): () => void {
     if (!this.eventListeners.has(roomId)) {
@@ -299,6 +318,17 @@ class SocketService {
     };
   }
 
+  addChatEventListener(callback: (message: ChatMessage) => void): () => void {
+    this.chatEventListeners.push(callback);
+    
+    return () => {
+      const index = this.chatEventListeners.indexOf(callback);
+      if (index > -1) {
+        this.chatEventListeners.splice(index, 1);
+      }
+    };
+  }
+
   private emitRoomEvent(event: RoomEvent): void {
     this.eventListeners.forEach((listeners) => {
       listeners.forEach(callback => callback(event));
@@ -316,6 +346,10 @@ class SocketService {
     this.gameEventListeners.forEach(callback => callback(event));
   }
 
+  private emitChatEvent(message: ChatMessage): void {
+    this.chatEventListeners.forEach(callback => callback(message));
+  }
+
   // Cleanup
   disconnect(): void {
     if (this.socket) {
@@ -325,6 +359,7 @@ class SocketService {
     this.isConnected = false;
     this.eventListeners.clear();
     this.gameEventListeners = [];
+    this.chatEventListeners = [];
   }
 }
 

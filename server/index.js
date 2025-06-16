@@ -25,6 +25,7 @@ app.use(express.json());
 const rooms = new Map();
 const players = new Map(); // socketId -> playerInfo
 const gameStates = new Map(); // roomId -> gameState
+const chatMessages = new Map(); // roomId -> messages[]
 
 // Room management functions
 function createRoom(data) {
@@ -58,6 +59,7 @@ function createRoom(data) {
 
   rooms.set(roomId, room);
   players.set(data.socketId, { playerId, roomId });
+  chatMessages.set(roomId, []); // Initialize chat for room
 
   return { room, playerId };
 }
@@ -114,6 +116,7 @@ function leaveRoom(socketId) {
   if (room.players.length === 0) {
     rooms.delete(playerInfo.roomId);
     gameStates.delete(playerInfo.roomId);
+    chatMessages.delete(playerInfo.roomId); // Clean up chat
     return { roomDeleted: true };
   }
 
@@ -174,6 +177,10 @@ io.on('connection', (socket) => {
       
       if (result.success) {
         socket.join(data.roomId);
+        
+        // Send existing chat messages to new player
+        const messages = chatMessages.get(data.roomId) || [];
+        socket.emit('chat-history', messages);
         
         // Notify other players in room
         socket.to(data.roomId).emit('player-joined', {
@@ -392,6 +399,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Chat system
+  socket.on('send-chat-message', (message) => {
+    const playerInfo = players.get(socket.id);
+    if (!playerInfo) return;
+
+    const room = rooms.get(playerInfo.roomId);
+    if (!room) return;
+
+    // Validate message
+    if (!message.content || message.content.trim().length === 0) return;
+    if (message.content.length > 200) return; // Max message length
+
+    // Store message
+    const roomMessages = chatMessages.get(playerInfo.roomId) || [];
+    roomMessages.push(message);
+    
+    // Keep only last 100 messages per room
+    if (roomMessages.length > 100) {
+      roomMessages.splice(0, roomMessages.length - 100);
+    }
+    
+    chatMessages.set(playerInfo.roomId, roomMessages);
+
+    // Broadcast to all players in room (including sender for confirmation)
+    io.to(playerInfo.roomId).emit('chat-message', message);
+    
+    console.log(`Chat message in room ${playerInfo.roomId}: ${message.playerName}: ${message.type === 'sticker' ? `[Sticker: ${message.content}]` : message.content}`);
+  });
+
   // Handle disconnect
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
@@ -422,7 +458,8 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     activeRooms: rooms.size,
-    connectedPlayers: players.size
+    connectedPlayers: players.size,
+    totalChatMessages: Array.from(chatMessages.values()).reduce((total, messages) => total + messages.length, 0)
   });
 });
 
@@ -441,6 +478,7 @@ setInterval(() => {
       
       rooms.delete(roomId);
       gameStates.delete(roomId);
+      chatMessages.delete(roomId);
       console.log(`Cleaned up inactive room: ${roomId}`);
     }
   }
@@ -451,5 +489,6 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 UNO Server running on port ${PORT}`);
   console.log(`📡 WebSocket server ready for connections`);
+  console.log(`💬 Chat system enabled`);
   console.log(`🌐 CORS enabled for localhost:5173, localhost:3000, and betterunogame.netlify.app`);
 });

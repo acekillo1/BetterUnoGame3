@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardColor } from './types/Card';
 import { useGameState } from './hooks/useGameState';
 import { useRoomSystem } from './hooks/useRoomSystem';
+import { useChatSystem } from './hooks/useChatSystem';
 import { canPlayCard, validateCardPlay, canStackDrawCard } from './utils/cardUtils';
+import { socketService } from './services/SocketService';
 import GameBoard from './components/GameBoard';
 import PlayerHand from './components/PlayerHand';
 import GameStatus from './components/GameStatus';
 import RoomBrowser from './components/RoomSystem/RoomBrowser';
 import RoomLobby from './components/RoomSystem/RoomLobby';
+import ChatPanel from './components/Chat/ChatPanel';
 
 type AppState = 'room-browser' | 'room-lobby' | 'game';
 
@@ -51,6 +54,21 @@ function App() {
     handleStackedDraw: localHandleStackedDraw
   } = useGameState();
 
+  // Chat system
+  const {
+    messages,
+    isOpen: isChatOpen,
+    sendMessage,
+    sendSticker,
+    toggleChat,
+    addMessage,
+    clearMessages
+  } = useChatSystem(
+    currentRoom?.id || null,
+    currentPlayerId,
+    currentRoom?.players.find(p => p.id === currentPlayerId)?.name || 'Unknown'
+  );
+
   // Use room game state if in multiplayer, otherwise use local game state
   const gameState = roomGameState || localGameState;
   const playCard = roomGameState ? roomPlayCard : localPlayCard;
@@ -59,8 +77,17 @@ function App() {
   const handleStackedDraw = roomGameState ? roomHandleStackedDraw : localHandleStackedDraw;
   const isMultiplayer = !!roomGameState;
 
+  // Setup chat event listeners
+  useEffect(() => {
+    const unsubscribe = socketService.addChatEventListener((message) => {
+      addMessage(message);
+    });
+
+    return unsubscribe;
+  }, [addMessage]);
+
   // Handle room events
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentRoom) {
       if (currentRoom.gameInProgress && appState !== 'game') {
         setAppState('game');
@@ -71,8 +98,9 @@ function App() {
       }
     } else {
       setAppState('room-browser');
+      clearMessages(); // Clear chat when leaving room
     }
-  }, [currentRoom, appState]);
+  }, [currentRoom, appState, clearMessages]);
 
   // Room system handlers
   const handleCreateRoom = async (data: any) => {
@@ -211,15 +239,28 @@ function App() {
 
   if (appState === 'room-lobby' && currentRoom && currentPlayerId) {
     return (
-      <RoomLobby
-        room={currentRoom}
-        currentPlayerId={currentPlayerId}
-        isHost={isHost}
-        onLeaveRoom={handleLeaveRoom}
-        onKickPlayer={kickPlayer}
-        onStartGame={handleStartGame}
-        onToggleReady={toggleReady}
-      />
+      <>
+        <RoomLobby
+          room={currentRoom}
+          currentPlayerId={currentPlayerId}
+          isHost={isHost}
+          onLeaveRoom={handleLeaveRoom}
+          onKickPlayer={kickPlayer}
+          onStartGame={handleStartGame}
+          onToggleReady={toggleReady}
+        />
+        
+        {/* Chat in lobby */}
+        <ChatPanel
+          messages={messages}
+          currentPlayerId={currentPlayerId}
+          currentPlayerName={currentRoom.players.find(p => p.id === currentPlayerId)?.name || 'Unknown'}
+          onSendMessage={sendMessage}
+          onSendSticker={sendSticker}
+          isOpen={isChatOpen}
+          onToggle={toggleChat}
+        />
+      </>
     );
   }
 
@@ -316,11 +357,25 @@ function App() {
                 <li>• <strong>Multiplayer:</strong> Host quản lý game, tất cả hành động được đồng bộ</li>
                 <li>• <strong>Real-time:</strong> Mọi người chơi cùng một trận game</li>
                 <li>• <strong>Validation:</strong> Chỉ có thể đánh bài hợp lệ theo luật UNO</li>
+                <li>• <strong>Chat & Stickers:</strong> Trò chuyện và gửi sticker trong game</li>
               </>
             )}
           </ul>
         </div>
       </div>
+
+      {/* Chat Panel - Only show in multiplayer */}
+      {isMultiplayer && currentRoom && currentPlayerId && (
+        <ChatPanel
+          messages={messages}
+          currentPlayerId={currentPlayerId}
+          currentPlayerName={currentRoom.players.find(p => p.id === currentPlayerId)?.name || 'Unknown'}
+          onSendMessage={sendMessage}
+          onSendSticker={sendSticker}
+          isOpen={isChatOpen}
+          onToggle={toggleChat}
+        />
+      )}
     </div>
   );
 }
